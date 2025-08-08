@@ -1,0 +1,15 @@
+fastapi==0.104.1
+uvicorn==0.23.2
+pydantic==1.10.13
+python-dotenv==1.0.0
+numpy==1.26.0
+pandas==2.1.1
+PyPDF2==3.0.1
+pdfminer.six==20221105
+sentence-transformers==2.2.2
+chromadb==0.4.18
+langchain==0.0.267
+langchain-community==0.0.13
+ollama==0.5.1
+pytest==7.4.3
+tqdm==4.66.1
