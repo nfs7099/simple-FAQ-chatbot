@@ -1,8 +1,9 @@
 import os
-import PyPDF2
 from pathlib import Path
 from typing import List, Dict, Any, Generator, Iterator
 import logging
+
+import PyPDF2
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -92,11 +93,13 @@ class PDFProcessor:
 
 
 if __name__ == "__main__":
+
+    # Run the PDF processor with sample configuration for testing
     from configs.config import PDF_DIR, CHUNK_SIZE, CHUNK_OVERLAP
 
     processor = PDFProcessor(PDF_DIR)
     chunk_count = 0
-    sample_limit = 3  # Number of sample chunks to print
+    sample_limit = 10  # Number of sample chunks to print
 
     for doc in processor.process_all_pdfs(CHUNK_SIZE, CHUNK_OVERLAP):
         chunk_count += 1
