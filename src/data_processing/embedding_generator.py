@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 import logging
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Generator
 
 import numpy as np
 from sentence_transformers import SentenceTransformer
@@ -52,20 +52,35 @@ class EmbeddingGenerator:
             logger.error(f"Error generating embeddings: {e}")
             return [np.zeros(self.embedding_dim) for _ in texts]
         
-    def process_document(self, documents: List[Dict[str, Any]], batch_size: int = 32) -> List[Dict[str, Any]]:
-        """Process a list of documents to generate embeddings."""
-        if not documents:
-            logger.warning("No documents provided for embedding generation.")
-            return []
-
-        texts = [doc['text'] for doc in documents]
-        embeddings = self.generate_embeddings(texts, batch_size)
-
-        for i, doc in enumerate(documents):
-            doc['embedding'] = embeddings[i] if i < len(embeddings) else np.zeros(self.embedding_dim)
+    def process_documents_batch(self, documents_iterator, batch_size: int = 32) -> Generator[Dict[str, Any], None, None]:
+        """Process documents in batches to generate embeddings."""
+        current_batch = []
         
-        logger.info(f"Processed {len(documents)} documents with embeddings.")
-        return documents
+        for doc in documents_iterator:
+            current_batch.append(doc)
+            
+            if len(current_batch) >= batch_size:
+                # Process the current batch
+                texts = [doc['text'] for doc in current_batch]
+                embeddings = self.generate_embeddings(texts, batch_size)
+                
+                # Yield processed documents one by one
+                for i, doc in enumerate(current_batch):
+                    doc['embedding'] = embeddings[i] if i < len(embeddings) else np.zeros(self.embedding_dim)
+                    yield doc
+                
+                # Clear the batch
+                current_batch = []
+                
+        # Process any remaining documents
+        if current_batch:
+            texts = [doc['text'] for doc in current_batch]
+            embeddings = self.generate_embeddings(texts, batch_size)
+            
+            for i, doc in enumerate(current_batch):
+                doc['embedding'] = embeddings[i] if i < len(embeddings) else np.zeros(self.embedding_dim)
+                yield doc
+        
     
 if __name__ == "__main__":
     # Example usage
@@ -73,15 +88,30 @@ if __name__ == "__main__":
     from .pdf_processor import PDFProcessor
     
     processor = PDFProcessor(PDF_DIR)
-    documents = processor.process_all_pdfs(CHUNK_SIZE, CHUNK_OVERLAP)
-
-    if documents:
-        generator = EmbeddingGenerator(model_name=EMBEDDING_MODEL)
-        document_with_embeddings = generator.process_document(documents)
-        logger.info(f"Generated embeddings for {len(document_with_embeddings)} documents.")
-        if document_with_embeddings:
-            logger.info(f"Sample document with embedding: {document_with_embeddings[0]}")
-            logger.info(f"Sample embedding shape: {document_with_embeddings[0]['embedding'].shape}")
+    generator = EmbeddingGenerator(model_name=EMBEDDING_MODEL)
     
-    else:
-        logger.warning("No documents found to process.")
+    processed_count = 0
+    batch_size = 32
+    
+    try:
+        # Process documents in batches
+        for doc_with_embedding in generator.process_documents_batch(
+            processor.process_all_pdfs(CHUNK_SIZE, CHUNK_OVERLAP), 
+            batch_size
+        ):
+            processed_count += 1
+            
+            # Print sample for first few documents
+            if processed_count <= 3:
+                logger.info(f"Sample document {processed_count}:")
+                logger.info(f"Text: {doc_with_embedding['text'][:100]}...")
+                logger.info(f"Embedding shape: {doc_with_embedding['embedding'].shape}")
+            
+            # Print progress every 100 documents
+            if processed_count % 100 == 0:
+                logger.info(f"Processed {processed_count} documents so far...")
+                
+    except KeyboardInterrupt:
+        logger.info("\nProcessing interrupted by user")
+    finally:
+        logger.info(f"\nTotal documents processed: {processed_count}")
