@@ -75,6 +75,7 @@ def get_rag_pipeline() -> RAGPipeline:
     
     try:
         if rag_pipline is None:
+            logger.info("Initializing RAGpipeline...")
             rag_pipline = RAGPipeline(
                 llm_model_name=OLLAMA_MODEL,
                 embedding_model_name=EMBEDDING_MODEL,
@@ -85,7 +86,7 @@ def get_rag_pipeline() -> RAGPipeline:
             )
 
         # Check if vector store is initialized
-        if not rag_pipline.is_vector_store_initialized():
+        if not rag_pipline.vectore_store.is_initialized():
             logger.warning("Vector store not initialized.")
         else:
             logger.info("Vector store initialized successfully.")

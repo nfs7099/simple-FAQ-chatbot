@@ -38,5 +38,15 @@ def setup_logger(log_file: str = "app.log") -> logging.Logger:
     # Add handlers
     root_logger.addHandler(file_handler)
     root_logger.addHandler(console_handler)
+
+    # Suppress unwanted package logs
+    logging.getLogger('uvicorn.error').setLevel(logging.WARNING)
+    logging.getLogger('uvicorn.access').setLevel(logging.WARNING)
+    logging.getLogger('httpx').setLevel(logging.WARNING)
+    logging.getLogger('fastapi').setLevel(logging.WARNING)
+    logging.getLogger('sentence_transformers').setLevel(logging.WARNING)
+    logging.getLogger('torch').setLevel(logging.WARNING)
+    logging.getLogger('transformers').setLevel(logging.WARNING)
+    logging.getLogger('urllib3').setLevel(logging.WARNING)
     
     return root_logger

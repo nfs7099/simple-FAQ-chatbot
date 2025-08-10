@@ -23,7 +23,7 @@ PORT  = int(os.getenv("PORT", 8000))
 DEBUG = os.getenv("DEBUG", "False").lower() == "true"
 
 # PDF Configuration
-PDF_DIR = BASE_DIR/"data"/"raw"
+PDF_DIR = BASE_DIR / "data" / "raw"
 
 # Chunking Configuration
 CHUNK_SIZE    = 1000

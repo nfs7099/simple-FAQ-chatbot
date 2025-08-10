@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-waste FAQ Chatbot</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">
+                <i class="fas fa-recycle"></i>
+                <h1>E-waste FAQ Chatbot</h1>
+            </div>
+            <div class="status-indicator" id="status-indicator">
+                <span class="status-dot"></span>
+                <span class="status-text">Checking system status...</span>
+            </div>
+        </header>
+        
+        <main>
+            <div id="chat-container">
+                <div class="chat-interface">
+                    <div class="chat-messages" id="chat-messages">
+                        <!-- Messages will be added here -->
+                    </div>
+                    
+                    <div class="chat-input-container">
+                        <textarea
+                            id="chat-input"
+                            class="chat-input"
+                            placeholder="System initializing..."
+                            disabled
+                            rows="1"
+                        ></textarea>
+                        <button 
+                            id="send-button"
+                            class="send-button" 
+                            disabled
+                        >
+                            <i class="fas fa-paper-plane"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </main>
+        
+        <footer>
+            <p>E-waste FAQ Chatbot &copy; 2025 | Powered by RAG Technology</p>
+        </footer>
+    </div>
+    
+    <!-- Modal -->
+    <div id="status-modal" class="modal-backdrop" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">System Status</h2>
+                <button class="close-button" id="close-modal">×</button>
+            </div>
+            
+            <div class="modal-body" id="modal-body">
+                <!-- Status items will be added here -->
+            </div>
+            
+            <div class="modal-footer">
+                <button class="modal-button primary-button" id="close-modal-button">Close</button>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Global variables
+        let systemStatus = {
+            status: 'not_ready',
+            pdf_count: 0,
+            vector_db_initialized: false,
+            llm_initialized: false,
+            pdfs: []
+        };
+        let isLoading = false;
+        
+        // DOM elements
+        const chatMessages = document.getElementById('chat-messages');
+        const chatInput = document.getElementById('chat-input');
+        const sendButton = document.getElementById('send-button');
+        const statusIndicator = document.getElementById('status-indicator');
+        const statusDot = document.querySelector('.status-dot');
+        const statusText = document.querySelector('.status-text');
+        const statusModal = document.getElementById('status-modal');
+        const modalBody = document.getElementById('modal-body');
+        const closeModalButton = document.getElementById('close-modal-button');
+        const closeModalX = document.getElementById('close-modal');
+        
+        // Add welcome message
+        function addWelcomeMessage() {
+            const welcomeMessage = {
+                content: "Hello! I'm your E-waste FAQ assistant. Ask me any questions about electronic waste recycling, disposal, or environmental impact.",
+                timestamp: new Date(),
+                sources: []
+            };
+            addBotMessage(welcomeMessage);
+        }
+        
+        // Format time
+        function formatTime(timestamp) {
+            const date = new Date(timestamp);
+            return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        }
+        
+        // Add user message
+        function addUserMessage(content) {
+            const message = {
+                content: content,
+                timestamp: new Date()
+            };
+            
+            const messageElement = document.createElement('div');
+            messageElement.className = 'message user';
+            
+            const contentElement = document.createElement('div');
+            contentElement.className = 'message-content';
+            contentElement.textContent = message.content;
+            messageElement.appendChild(contentElement);
+            
+            const metaElement = document.createElement('div');
+            metaElement.className = 'message-meta';
+            metaElement.innerHTML = `
+                <span>You</span>
+                <span>•</span>
+                <span>${formatTime(message.timestamp)}</span>
+            `;
+            messageElement.appendChild(metaElement);
+            
+            chatMessages.appendChild(messageElement);
+            scrollToBottom();
+            
+            return message;
+        }
+        
+        // Add bot message
+        function addBotMessage(message) {
+            const messageElement = document.createElement('div');
+            messageElement.className = 'message bot';
+            
+            const contentElement = document.createElement('div');
+            contentElement.className = 'message-content';
+            contentElement.textContent = message.content;
+            messageElement.appendChild(contentElement);
+            
+            const metaElement = document.createElement('div');
+            metaElement.className = 'message-meta';
+            metaElement.innerHTML = `
+                <span>E-waste Assistant</span>
+                <span>•</span>
+                <span>${formatTime(message.timestamp || new Date())}</span>
+            `;
+            messageElement.appendChild(metaElement);
+            
+            // Add sources if available
+            if (message.sources && message.sources.length > 0) {
+                const sourcesContainer = document.createElement('div');
+                sourcesContainer.className = 'sources-container';
+                
+                const sourcesToggle = document.createElement('button');
+                sourcesToggle.className = 'sources-toggle';
+                sourcesToggle.innerHTML = `
+                    <i class="fas fa-chevron-down"></i>
+                    Show Sources (${message.sources.length})
+                `;
+                sourcesContainer.appendChild(sourcesToggle);
+                
+                const sourcesList = document.createElement('div');
+                sourcesList.className = 'sources-list';
+                sourcesList.style.display = 'none';
+                
+                message.sources.forEach((source, index) => {
+                    const sourceItem = document.createElement('div');
+                    sourceItem.className = 'source-item';
+                    
+                    const sourceMeta = document.createElement('div');
+                    sourceMeta.className = 'source-meta';
+                    sourceMeta.textContent = `Source: ${source.source} ${source.page ? `(Page ${source.page})` : ''}`;
+                    sourceItem.appendChild(sourceMeta);
+                    
+                    const sourceContent = document.createElement('div');
+                    sourceContent.className = 'source-content';
+                    sourceContent.textContent = source.content.length > 200 
+                        ? `${source.content.substring(0, 200)}...` 
+                        : source.content;
+                    sourceItem.appendChild(sourceContent);
+                    
+                    sourcesList.appendChild(sourceItem);
+                });
+                
+                sourcesContainer.appendChild(sourcesList);
+                messageElement.appendChild(sourcesContainer);
+                
+                // Toggle sources
+                sourcesToggle.addEventListener('click', () => {
+                    const isHidden = sourcesList.style.display === 'none';
+                    sourcesList.style.display = isHidden ? 'block' : 'none';
+                    sourcesToggle.innerHTML = `
+                        <i class="fas fa-chevron-${isHidden ? 'up' : 'down'}"></i>
+                        ${isHidden ? 'Hide' : 'Show'} Sources (${message.sources.length})
+                    `;
+                });
+            }
+            
+            chatMessages.appendChild(messageElement);
+            scrollToBottom();
+        }
+        
+        // Add loading message
+        function addLoadingMessage() {
+            const loadingElement = document.createElement('div');
+            loadingElement.className = 'message bot loading-message';
+            
+            const contentElement = document.createElement('div');
+            contentElement.className = 'message-content';
+            
+            const loadingDots = document.createElement('div');
+            loadingDots.className = 'loading-dots';
+            loadingDots.innerHTML = '<span></span><span></span><span></span>';
+            
+            contentElement.appendChild(loadingDots);
+            loadingElement.appendChild(contentElement);
+            
+            chatMessages.appendChild(loadingElement);
+            scrollToBottom();
+            
+            return loadingElement;
+        }
+        
+        // Remove loading message
+        function removeLoadingMessage() {
+            const loadingMessage = document.querySelector('.loading-message');
+            if (loadingMessage) {
+                chatMessages.removeChild(loadingMessage);
+            }
+        }
+        
+        // Scroll to bottom
+        function scrollToBottom() {
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+        
+        // Send message
+        async function sendMessage() {
+            if (chatInput.value.trim() === '' || isLoading || systemStatus.status !== 'ready') return;
+            
+            const message = chatInput.value.trim();
+            
+            // Add user message
+            addUserMessage(message);
+            
+            // Clear input
+            chatInput.value = '';
+            
+            // Show loading
+            isLoading = true;
+            chatInput.disabled = true;
+            sendButton.disabled = true;
+            const loadingMessage = addLoadingMessage();
+            
+            try {
+                // Send request to API
+                const response = await fetch('/api/query', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ query: message }),
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`Error: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                // Remove loading message
+                removeLoadingMessage();
+                
+                // Add bot response
+                addBotMessage({
+                    content: data.answer,
+                    timestamp: new Date(),
+                    sources: data.sources || []
+                });
+                
+            } catch (error) {
+                console.error('Error querying API:', error);
+                
+                // Remove loading message
+                removeLoadingMessage();
+                
+                // Add error message
+                addBotMessage({
+                    content: `Sorry, I encountered an error: ${error.message}. Please try again later.`,
+                    timestamp: new Date(),
+                    sources: []
+                });
+                
+            } finally {
+                // Re-enable input
+                isLoading = false;
+                chatInput.disabled = false;
+                sendButton.disabled = false;
+                chatInput.focus();
+            }
+        }
+        
+        // Update status indicator
+        function updateStatusIndicator() {
+            // Remove existing classes
+            statusDot.classList.remove('online', 'offline', 'loading');
+            
+            if (systemStatus.status === 'ready') {
+                statusDot.classList.add('online');
+                statusText.textContent = 'System Ready';
+                
+                // Enable input
+                chatInput.disabled = false;
+                sendButton.disabled = false;
+                chatInput.placeholder = 'Type your question here...';
+            } else {
+                statusDot.classList.add('offline');
+                statusText.textContent = 'System Not Ready';
+                
+                // Disable input
+                chatInput.disabled = true;
+                sendButton.disabled = true;
+                chatInput.placeholder = 'System initializing...';
+            }
+        }
+        
+        // Update status modal
+        function updateStatusModal() {
+            modalBody.innerHTML = '';
+            
+            // LLM status
+            const llmStatus = document.createElement('div');
+            llmStatus.className = 'status-item';
+            llmStatus.innerHTML = `
+                <i class="fas fa-server status-icon ${systemStatus.llm_initialized ? 'success' : 'error'}"></i>
+                <div>
+                    <div class="status-label">LLM Model</div>
+                    <div>${systemStatus.llm_initialized ? 'Loaded and ready' : 'Not initialized'}</div>
+                </div>
+            `;
+            modalBody.appendChild(llmStatus);
+            
+            // Vector DB status
+            const vectorDBStatus = document.createElement('div');
+            vectorDBStatus.className = 'status-item';
+            vectorDBStatus.innerHTML = `
+                <i class="fas fa-database status-icon ${systemStatus.vector_db_initialized ? 'success' : 'error'}"></i>
+                <div>
+                    <div class="status-label">Vector Database</div>
+                    <div>${systemStatus.vector_db_initialized ? 'Initialized' : 'Not initialized'}</div>
+                </div>
+            `;
+            modalBody.appendChild(vectorDBStatus);
+            
+            // PDF status
+            const pdfStatus = document.createElement('div');
+            pdfStatus.className = 'status-item';
+            pdfStatus.innerHTML = `
+                <i class="fas fa-file-pdf status-icon ${systemStatus.pdf_count > 0 ? 'success' : 'warning'}"></i>
+                <div>
+                    <div class="status-label">PDF Documents</div>
+                    <div>
+                        ${systemStatus.pdf_count > 0 
+                            ? `${systemStatus.pdf_count} document${systemStatus.pdf_count !== 1 ? 's' : ''} loaded` 
+                            : 'No documents found'}
+                    </div>
+                    ${systemStatus.pdfs && systemStatus.pdfs.length > 0 
+                        ? `<div class="pdf-list">${systemStatus.pdfs.map(pdf => `<div class="pdf-item">${pdf}</div>`).join('')}</div>` 
+                        : ''}
+                </div>
+            `;
+            modalBody.appendChild(pdfStatus);
+            
+            // Overall status
+            const overallStatus = document.createElement('div');
+            overallStatus.className = 'status-item';
+            overallStatus.innerHTML = `
+                <i class="fas fa-circle-check status-icon ${systemStatus.status === 'ready' ? 'success' : 'error'}"></i>
+                <div>
+                    <div class="status-label">Overall Status</div>
+                    <div>${systemStatus.status === 'ready' ? 'System is ready' : 'System is not ready'}</div>
+                </div>
+            `;
+            modalBody.appendChild(overallStatus);
+        }
+        
+        // Fetch system status
+        async function fetchSystemStatus() {
+            try {
+                const response = await fetch('/api/status');
+                
+                if (!response.ok) {
+                    throw new Error(`Error: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                systemStatus = data;
+                
+                // Update UI
+                updateStatusIndicator();
+                updateStatusModal();
+                
+            } catch (error) {
+                console.error('Error fetching system status:', error);
+                
+                // Update status indicator to show error
+                statusDot.classList.remove('online', 'offline', 'loading');
+                statusDot.classList.add('offline');
+                statusText.textContent = 'Error checking status';
+            }
+        }
+        
+        // Show status modal
+        function showStatusModal() {
+            statusModal.style.display = 'flex';
+        }
+        
+        // Hide status modal
+        function hideStatusModal() {
+            statusModal.style.display = 'none';
+        }
+        
+        // Event listeners
+        sendButton.addEventListener('click', sendMessage);
+        
+        chatInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+        
+        statusIndicator.addEventListener('click', showStatusModal);
+        closeModalButton.addEventListener('click', hideStatusModal);
+        closeModalX.addEventListener('click', hideStatusModal);
+        
+        // Initialize
+        addWelcomeMessage();
+        fetchSystemStatus();
+        
+        // Poll for status updates every 10 seconds
+        setInterval(fetchSystemStatus, 10000);
+    </script>
+</body>
+</html>

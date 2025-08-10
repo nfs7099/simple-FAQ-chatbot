@@ -37,7 +37,7 @@ def main():
         rag = RAGPipeline(
             llm_model_name=OLLAMA_MODEL,
             embedding_model_name=EMBEDDING_MODEL,
-            vector_db_path=VECTOR_DB_PATH,
+            vector_db_path=str(VECTOR_DB_PATH),
             chuck_size=CHUNK_SIZE,
             chunk_overlap=CHUNK_OVERLAP,
             top_k=TOP_K_RESULTS

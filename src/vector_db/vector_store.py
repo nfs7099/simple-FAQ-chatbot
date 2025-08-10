@@ -59,7 +59,7 @@ class VectorStore:
         try:
             self.embedding_model = HuggingFaceEmbeddings(
                 model_name=self.embedding_model,
-                model_kwargs={"device": "cuda" if torch.cuda.is_available() else "cpu"},
+                model_kwargs={"device": "cpu"},
                 encode_kwargs={"normalize_embeddings": True}
             )
             logger.info("Embedding model initialized successfully.")
@@ -129,7 +129,7 @@ class VectorStore:
             logger.info(f"Total documents loaded: {len(all_docs)}")
 
             # Delete existing vector store if it exists
-            if self.vector_store and self.vector_store.persist_directory.exists():
+            if self.vector_db_path.exists():
                 logger.info(f"Deleting existing vector store at {self.vector_db_path}")
                 shutil.rmtree(self.vector_db_path)
                 logger.info("Existing vector store deleted.")
