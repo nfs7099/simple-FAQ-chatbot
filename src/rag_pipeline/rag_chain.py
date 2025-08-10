@@ -3,13 +3,15 @@ import sys
 import logging
 from typing import List, Dict, Any
 from pathlib import Path
+import logging
 
 from langchain_community.llms import ollama
 
+sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
+
 from src.vector_db.vector_store import VectorStore
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
 logger = logging.getLogger(__name__)
 
 class RAGPipeline:

@@ -1,8 +1,9 @@
-import os
+import os, sys
 import logging
 import shutil
 from pathlib import Path
 from typing import List
+import logging
 
 from langchain.embeddings import HuggingFaceEmbeddings
 from langchain.vectorstores import FAISS
@@ -11,8 +12,8 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.document_loaders import PyPDFLoader
 import torch
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
+
 logger = logging.getLogger(__name__)
 
 class VectorStore:
