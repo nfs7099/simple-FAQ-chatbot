@@ -85,7 +85,8 @@ class VectorStore:
             try:
                 self.vectore_store = FAISS.load_local(
                     folder_path=str(self.vector_db_path),
-                    embeddings= self.embedding_model
+                    embeddings= self.embedding_model,
+                    allow_dangerous_deserialization= True
                 )
                 logger.info(f"Loaded existing vectore stroe from {self.vector_db_path}")
             except Exception as e:

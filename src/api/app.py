@@ -79,14 +79,14 @@ def get_rag_pipeline() -> RAGPipeline:
             rag_pipline = RAGPipeline(
                 llm_model_name=OLLAMA_MODEL,
                 embedding_model_name=EMBEDDING_MODEL,
-                vector_db_path=VECTOR_DB_PATH,
+                vector_db_path=str(VECTOR_DB_PATH),
                 chuck_size=CHUNK_SIZE,
                 chunk_overlap=CHUNK_OVERLAP,
                 top_k=TOP_K_RESULTS
             )
 
         # Check if vector store is initialized
-        if not rag_pipline.vectore_store.is_initialized():
+        if not rag_pipline.vector_store.is_initialized():
             logger.warning("Vector store not initialized.")
         else:
             logger.info("Vector store initialized successfully.")

@@ -31,7 +31,7 @@ class RAGPipeline:
 
         self._init_llm()
 
-        self.vectore_store = VectorStore(
+        self.vector_store = VectorStore(
             embedding_model_name=embedding_model_name,
             vector_db_path=vector_db_path,
             chunk_size=chuck_size,
@@ -56,13 +56,13 @@ class RAGPipeline:
     def load_documents(self, documents: List[str]) -> bool:
         """Load documents into the vector store."""
         logger.info("Loading documents into the vector store.")
-        return self.vectore_store.load_documents(documents)
+        return self.vector_store.load_documents(documents)
     
     def query(self, question: str) -> Dict[str, Any]:
         """Query the vector store and generate a response using the LLM."""
         logger.info(f"Processing query: {question}")
         try:
-            docs = self.vectore_store.get_relevant_documents(question)
+            docs = self.vector_store.get_relevant_documents(question)
 
             if not docs:
                 logger.info("No relevant documents found.")
