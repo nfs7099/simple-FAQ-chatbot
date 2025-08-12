@@ -101,7 +101,7 @@ class RAGPipeline:
             sources = []
             for doc in docs:
                 sources.append({
-                    "contetnt": doc.page_content,
+                    "content": doc.page_content,
                     "source": doc.metadata.get("source", "Unknown"),
                     "page": doc.metadata.get("page", 0)
                 })

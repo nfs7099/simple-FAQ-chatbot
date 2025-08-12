@@ -83,22 +83,25 @@ class VectorStore:
         if not self.vector_store:
             logger.warning("Vector store is not initialized. Initializing now...")
             try:
-                self.vectore_store = FAISS.load_local(
+                # Fix typo: 'vectore_store' -> 'vector_store'
+                self.vector_store = FAISS.load_local(
                     folder_path=str(self.vector_db_path),
-                    embeddings= self.embedding_model,
-                    allow_dangerous_deserialization= True
+                    embeddings=self.embedding_model,
+                    allow_dangerous_deserialization=True
                 )
-                logger.info(f"Loaded existing vectore stroe from {self.vector_db_path}")
+                # Fix typo: 'vectore stroe' -> 'vector store'
+                logger.info(f"Loaded existing vector store from {self.vector_db_path}")
             except Exception as e:
                 logger.error(f"Failed to load vector store: {e}")
                 return
 
-        self.retriever = self.vector_store.as_retriever(
-            search_type="similarity",
-            search_kwargs={"k": self.top_k}
-        )
-
-        logger.info("Retriever initialized successfully.")
+        # Only set up retriever if vector_store exists
+        if self.vector_store:
+            self.retriever = self.vector_store.as_retriever(
+                search_type="similarity",
+                search_kwargs={"k": self.top_k}
+            )
+            logger.info("Retriever initialized successfully.")
 
 
     def load_documents(self, pdf_dr: str)-> bool:
