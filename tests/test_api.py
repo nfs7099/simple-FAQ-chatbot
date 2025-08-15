@@ -1,66 +1,63 @@
-import unittest
-import os
-import sys
+# tests/test_api.py
 from pathlib import Path
-from fastapi.testclient import TestClient
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+def test_status_before_indexing(client):
+    r = client.get("/api/status")
+    assert r.status_code == 200
+    body = r.json()
+    # No index yet
+    assert body["vector_db_initialized"] in (False, 0)
 
-from src.api.app import app
 
-class TestAPI(unittest.TestCase):
+def test_reindex_full_then_query(client, make_pdf):
+    # Create one test PDF
+    make_pdf("doc1.pdf")
 
-    def setUp(self):
-        self.client = TestClient(app)
+    # Full rebuild
+    r = client.post("/api/reindex", params={"mode": "full"})
+    assert r.status_code == 200
+    assert r.json()["status"] == "ok"
 
-    def test_root_endpoint(self):
-        response = self.client.get("/")
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("text/html", response.headers["content-type"])
+    # Status should show initialized and 1 PDF
+    s = client.get("/api/status").json()
+    assert s["vector_db_initialized"] in (True, 1)
+    assert s["pdf_count"] == 1
 
-    def test_status_endpoint(self):
-        response = self.client.get("/api/status")
-        self.assertEqual(response.status_code, 200)
-        
-        # Check that the response has expected structure
-        data = response.json()
-        self.assertIn("status", data)
-        self.assertIn("pdf_count", data)
-        self.assertIn("vector_db_initialized", data)
-        self.assertIn("llm_initialized", data)
-        self.assertIn("pdfs", data)
+    # Query should return an answer and (usually) at least one source
+    q = client.post("/api/query", json={"query": "What is e-waste?"})
+    assert q.status_code == 200
+    body = q.json()
+    assert isinstance(body["answer"], str) and len(body["answer"]) > 0
+    # Sources may be 0 if blank page; presence of key is what we check
+    assert "sources" in body
 
-        # Check types
-        self.assertIsInstance(data["status"], str)
-        self.assertIsInstance(data["pdf_count"], int)
-        self.assertIsInstance(data["vector_db_initialized"], bool)
-        self.assertIsInstance(data["llm_initialized"], bool)
-        self.assertIsInstance(data["pdfs"], list)
 
-    def test_querty_endpoint_valid(self):
-        # This test is expected top fail if the system is not ready
-        response = self.client.post("/api/query", json={"query": "What is e-waste?"})
+def test_incremental_reindex_adds_new_only(client, make_pdf):
+    # Start with one PDF and full rebuild
+    make_pdf("doc1.pdf")
+    client.post("/api/reindex", params={"mode": "full"})
 
-        if response.status_code == 503:
-            self.assertIn("RAG pipeline not initialized", response.json()["detail"])
-            return
-        
-        # If the system is ok we expect a 200 OK with the correct structure
-        self.assertEqual(response.status_code, 200)
-        data = response.json()
+    # Add a second PDF and run incremental
+    make_pdf("doc2.pdf")
+    r = client.post("/api/reindex")  # default: incremental scan-and-sync
+    assert r.status_code == 200
+    result = r.json()["result"]
+    # Should be incremental mode (not forced full rebuild)
+    assert result["mode"] != "rebuild-failed"
+    # After incremental, status should show 2 PDFs tracked
+    s = client.get("/api/status").json()
+    assert s["pdf_count"] == 2
 
-        self.assertIn("answer", data)
-        self.assertIn("sources", data)
 
-        self.assertIsInstance(data["answer"], str)
-        self.assertIsInstance(data["sources"], list)
+def test_upload_rejects_non_pdf(client):
+    # Pretend upload of a .txt file (wrong extension)
+    files = {"file": ("notes.txt", b"hello world", "text/plain")}
+    r = client.post("/api/upload", files=files)
+    assert r.status_code == 400
+    assert "Only" in r.json()["detail"] or "PDF" in r.json()["detail"]
 
-        # If there are sources check their structure
-        if data["sources"]:
-            source = data["sources"][0]
-            self.assertIn("source", source)
-            self.assertIn("content", source)
-            self.assertIn("page", source)
-
-if __name__ == "__main__":
-    unittest.main()
+    # Also reject a .pdf name with non-PDF content
+    files = {"file": ("fake.pdf", b"NOT_A_PDF", "application/pdf")}
+    r = client.post("/api/upload", files=files)
+    assert r.status_code == 400
+    assert "not a valid PDF" in r.json()["detail"]

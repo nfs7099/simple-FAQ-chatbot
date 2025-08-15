@@ -1,0 +1,6 @@
+{
+  "appName": "Your App Name",
+  "assistantName": "Assistant",
+  "defaultTheme": "emerald",
+  "themes": ["emerald","indigo","slate","rose","amber","teal"]
+}

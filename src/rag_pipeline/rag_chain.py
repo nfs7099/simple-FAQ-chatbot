@@ -1,148 +1,235 @@
-import os
 import sys
 import logging
-from typing import List, Dict, Any
 from pathlib import Path
-import logging
-
-from langchain_community.llms import ollama
+from typing import Any, Dict, List, Optional, Union
 
 sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 
 from src.vector_db.vector_store import VectorStore
-
+from configs.config import (
+    LLM_PROVIDER,
+    OLLAMA_MODEL,
+    OPENAI_API_KEY, OPENAI_MODEL,
+    ANTHROPIC_API_KEY, ANTHROPIC_MODEL,
+    RERANKER_MODEL,
+    USE_TOKEN_SPLITTER,
+    TOKENIZER_NAME,
+    TOKEN_CHUNK_SIZE,
+    TOKEN_CHUNK_OVERLAP,
+    PDF_DIR,
+    TOP_K_RESULTS,
+)
+from configs.config import validate_configuration
 
 logger = logging.getLogger(__name__)
 
+
 class RAGPipeline:
+    """
+    Retrieval-Augmented Generation pipeline with:
+      - Provider switch: ollama | openai | anthropic
+      - Optional CrossEncoder reranking
+      - Token-aware chunking support (configured via .env)
+    """
 
     def __init__(
-        self, 
+        self,
         llm_model_name: str = "gemma2:9b",
         embedding_model_name: str = "BAAI/bge-base-en-v1.5",
         vector_db_path: str = "./data/vector_db",
         temperature: float = 0.1,
         top_k: int = 3,
-        chuck_size: int = 500,
-        chunk_overlap: int = 50
+        chunk_size: int = 500,      
+        chunk_overlap: int = 50,
+        enable_reranker: bool = True,
+        reranker_model_name: Optional[str] = None,
     ):
-        self.llm_model_name = llm_model_name 
+        self.llm_model_name = llm_model_name
         self.temperature = temperature
+        self.top_k = top_k
+        self.initial_k = max(self.top_k * 4, 20) # wider recall for reranking
 
-        self._init_llm()
+        self.llm = self._build_llm(provider=LLM_PROVIDER, temperature=self.temperature)
 
         self.vector_store = VectorStore(
             embedding_model_name=embedding_model_name,
             vector_db_path=vector_db_path,
-            chunk_size=chuck_size,
+            chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
-            top_k=top_k
+            top_k=top_k,
+            use_token_splitter=USE_TOKEN_SPLITTER,
+            tokenizer_name=TOKENIZER_NAME,
+            token_chunk_size=TOKEN_CHUNK_SIZE,
+            token_chunk_overlap=TOKEN_CHUNK_OVERLAP,
         )
 
+        self.reranker = None
+        self.reranker_model_name = reranker_model_name or RERANKER_MODEL
+        if enable_reranker:
+            self._init_reranker()
 
-    def _init_llm(self):
-        """Initialize the LLM model."""
-        logger.info(f"Initializing LLM model: {self.llm_model_name}")
+    # LLM factory
+    def _build_llm(self, provider: str, temperature: float):
+        provider = (provider or "").lower()
+        logger.info(f"Initializing LLM provider={provider}")
+
+        if provider == "ollama":
+            from langchain_ollama import ChatOllama
+            return ChatOllama(model=self.llm_model_name or OLLAMA_MODEL, temperature=temperature)
+
+        if provider == "openai":
+            if not OPENAI_API_KEY:
+                raise RuntimeError("OPENAI_API_KEY is not set but LLM_PROVIDER=openai.")
+            from langchain_openai import ChatOpenAI
+            return ChatOpenAI(model=OPENAI_MODEL, temperature=temperature)
+
+        if provider == "anthropic":
+            if not ANTHROPIC_API_KEY:
+                raise RuntimeError("ANTHROPIC_API_KEY is not set but LLM_PROVIDER=anthropic.")
+            from langchain_anthropic import ChatAnthropic
+            return ChatAnthropic(model_name=ANTHROPIC_MODEL, temperature=temperature)
+
+        raise ValueError(f"Unsupported LLM_PROVIDER: {provider}")
+
+    # reranker
+    def _init_reranker(self):
         try:
-            self.llm = ollama.Ollama(
-                model=self.llm_model_name,
-                temperature=self.temperature
-            )
-            logger.info("LLM model initialized successfully.")
+            from sentence_transformers import CrossEncoder
+            logger.info(f"Initializing reranker: {self.reranker_model_name}")
+            self.reranker = CrossEncoder(self.reranker_model_name)
+            logger.info("Reranker initialized successfully.")
         except Exception as e:
-            logger.error(f"Failed to initialize LLM model: {e}")
-            sys.exit(1)
-    
-    def load_documents(self, documents: List[str]) -> bool:
-        """Load documents into the vector store."""
+            logger.warning(
+                f"Reranker disabled (could not initialize '{self.reranker_model_name}'): {e}. "
+                "Proceeding without reranking."
+            )
+            self.reranker = None
+
+    # public API 
+    def load_documents(self, documents_dir: Union[str, Path]) -> bool:
+        """Load documents (PDF directory path) into the vector store."""
         logger.info("Loading documents into the vector store.")
-        return self.vector_store.load_documents(documents)
-    
+        return self.vector_store.load_documents(str(documents_dir))
+
     def query(self, question: str) -> Dict[str, Any]:
-        """Query the vector store and generate a response using the LLM."""
+        """Retrieve context, optionally rerank, and answer via the selected LLM."""
         logger.info(f"Processing query: {question}")
         try:
-            docs = self.vector_store.get_relevant_documents(question)
+            docs = self._retrieve_candidates(question)
 
             if not docs:
                 logger.info("No relevant documents found.")
-                return {"answer": "No relevant documents found. Please make sure the vector store is populated with documents.",
-                        "sources": []
+                return {
+                    "answer": "No relevant documents found. Please make sure the vector store is populated with documents.",
+                    "sources": [],
                 }
-            
-            # Create context from docuements
-            context = "\n\n".join([doc.page_content for doc in docs])
 
-            # Create a prompt for the LLM
-            prompt = f"""
-            You are a helpful assistant. Use the following pieces of context to answer the question at the end.
-            If you don't know the answer, just say that you don't know. Don't try to make up an answer.
-            Keep the answer concise and relevant to the question.
-            
-            IMportant: Provide a direct answer without referring to the context as "already provided" or similar phrases.
-            Just give the answer as if you're answering the question directly.
-            
-            Very Important: Preserve the exact formatting style from the source material. If the source materia uses a specific format for lists
-            (such as "a. item1; b. item2; c. item3" or any other format), make sure to use the same format in your answer.
-            For example, if the source uses lettered lists like "a. First Item; b. Second Item", use the same format rather than the numbered lists
-            
-            
-            Context:
-            {context}
-            
-            
-            Question: {question}
+            if self.reranker is not None and len(docs) > self.top_k:
+                docs = self._rerank_select(question, docs, top_k=self.top_k)
 
-            Answer:
-            """
+            context = "\n\n".join([d.page_content for d in docs])
+            prompt = (
+                "You are a precise assistant. Answer ONLY using the context. "
+                "If the answer is not fully contained in the context, say: "
+                "\"I don’t know from the provided files.\""
+                "\n\nContext:\n"
+                f"{context}\n\n"
+                f"Question: {question}\n\n"
+                "Answer:"
+            )
 
-            answer = self.llm.invoke(prompt)
+            response = self.llm.invoke(prompt)
+            answer = response.content if hasattr(response, "content") else str(response)
 
-            sources = []
-            for doc in docs:
-                sources.append({
-                    "content": doc.page_content,
-                    "source": doc.metadata.get("source", "Unknown"),
-                    "page": doc.metadata.get("page", 0)
-                })
+            sources = [
+                {
+                    "content": d.page_content,
+                    "source": d.metadata.get("source", "Unknown"),
+                    "page": d.metadata.get("page", 0),
+                }
+                for d in docs
+            ]
+            return {"answer": answer, "sources": sources}
 
-            return {
-                "answer": answer,
-                "sources": sources
-            }
-        
         except Exception as e:
-            logger.error(f"Error processing query: {e}")    
+            logger.error(f"Error processing query: {e}", exc_info=True)
             return {
                 "answer": f"I'm sorry, but an error occurred while processing your question: {str(e)}",
-                "sources": []
+                "sources": [],
             }
-        
-if __name__ == "__main__":
 
-    from configs.config import OLLAMA_MODEL, EMBEDDING_MODEL, VECTOR_DB_PATH, CHUNK_SIZE, CHUNK_OVERLAP, TOP_K_RESULTS, PDF_DIR
-    # Example usage
-    rag = RAGPipeline(
-        llm_model_name=OLLAMA_MODEL,
-        embedding_model_name=EMBEDDING_MODEL,
-        vector_db_path=VECTOR_DB_PATH,
-        chuck_size=CHUNK_SIZE,
-        chunk_overlap=CHUNK_OVERLAP,
-        top_k=TOP_K_RESULTS
+    def _retrieve_candidates(self, question: str):
+        """Pull wider set (initial_k) for reranking, else retriever default."""
+        try:
+            if self.reranker is not None:
+                return self.vector_store.similarity_search(question, k=self.initial_k)
+            return self.vector_store.get_relevant_documents(question)
+        except Exception as e:
+            logger.error(f"Candidate retrieval failed: {e}", exc_info=True)
+            return []
+
+    def _rerank_select(self, question: str, docs: List[Any], top_k: int) -> List[Any]:
+        """CrossEncoder reranking; returns top_k docs."""
+        try:
+            pairs = [(question, d.page_content) for d in docs]
+            scores = self.reranker.predict(pairs)  # numpy array
+            ranked = sorted(zip(docs, scores), key=lambda x: float(x[1]), reverse=True)
+            selected = [d for d, _ in ranked[:top_k]]
+            logger.debug(f"Reranker selected top {len(selected)} / {len(docs)} docs.")
+            return selected
+        except Exception as e:
+            logger.warning(f"Reranking failed, falling back to vector similarity order: {e}")
+            return docs[:top_k]
+
+
+
+if __name__ == "__main__":
+    import argparse
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)-7s | %(name)s | %(message)s",
     )
 
-    success = rag.load_documents(PDF_DIR)
+    parser = argparse.ArgumentParser(description="Smoke test for RAGPipeline")
+    parser.add_argument("--ask", type=str, default="What is e-waste and why is it important to recycle it?")
+    parser.add_argument("--pdf-dir", type=str, default=str(PDF_DIR))
+    parser.add_argument("--top-k", type=int, default=TOP_K_RESULTS)
+    parser.add_argument("--no-reranker", action="store_true")
+    args = parser.parse_args()
 
-    if success:
-        test_question = "What is e-waste and why is it important to recycle it?"
-        response = rag.query(test_question)
+    errors = validate_configuration()
+    if errors:
+        print("Configuration errors:")
+        for err in errors:
+            print(f"  - {err}")
+        sys.exit(1)
 
-        logger.info(f"\nQuestion: {test_question}")
-        logger.info(f"Answer: {response['answer']}")
-        logger.info(f"Sources:")
-        for i, source in enumerate(response['sources']):
-            logger.info(f"{i + 1}. Source: {source['source']}, Page: {source['page']}, Content: {source['contetnt'][:100]}...")
-        logger.info("Documents loaded successfully into the vector store.")
+    print(f" PDF dir: {args.pdf_dir}")
+    print(f"Provider: {LLM_PROVIDER} | Model: {OLLAMA_MODEL if LLM_PROVIDER=='ollama' else OPENAI_MODEL if LLM_PROVIDER=='openai' else ANTHROPIC_MODEL}")
+    print(f"Reranker: {'disabled' if args.no_reranker else RERANKER_MODEL} | top_k={args.top_k}")
 
+    rag = RAGPipeline(
+        llm_model_name=OLLAMA_MODEL,
+        embedding_model_name="BAAI/bge-base-en-v1.5",
+        vector_db_path=str(Path(PDF_DIR).parent / "vector_db"),
+        chunk_size=800,                
+        chunk_overlap=120,
+        top_k=args.top_k,
+        enable_reranker=not args.no_reranker,
+    )
+
+    loaded = rag.load_documents(args.pdf_dir)
+    if not loaded:
+        print("No PDFs loaded. Make sure there are .pdf files in the directory above.")
+        sys.exit(1)
+
+    result = rag.query(args.ask)
+    print("\n================= ANSWER =================")
+    print(result["answer"])
+    print("=============== SOURCES =================")
+    if result["sources"]:
+        for i, s in enumerate(result["sources"], 1):
+            print(f"{i}. {s.get('source')}  (page {s.get('page')})")
     else:
-        print("Failed to load documents into the vector store. Check the logs for more details.")
+        print("(no sources)")
