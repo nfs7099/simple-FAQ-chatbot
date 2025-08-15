@@ -26,29 +26,46 @@
   }
 
   function applyConfig(cfg) {
-    // Expose globally for other scripts/components
-    window.UI_CONFIG = cfg;
+  window.UI_CONFIG = cfg;
 
-    // Title + header text
-    try {
-      document.title = cfg.appName || document.title;
-      const h1 = document.querySelector("#appTitle, header .logo h1, header h1");
-      if (h1) h1.textContent = cfg.appName;
-    } catch {}
+  // Title + header
+  try {
+    document.title = cfg.appName || document.title;
+    const h1 = document.querySelector("#appTitle, header .logo h1, header h1");
+    if (h1) h1.textContent = cfg.appName;
 
-    // Theme (respect user override in localStorage)
-    const saved = localStorage.getItem("theme");
-    const theme =
-      (saved && cfg.themes?.includes(saved)) ? saved : (cfg.defaultTheme || "emerald");
-    document.documentElement.setAttribute("data-theme", theme);
+    // 👇 Footer uses ASSISTANT_NAME (fallback to appName)
+    const footerSpan = document.querySelector("#appFooterName");
+    if (footerSpan) footerSpan.textContent = cfg.assistantName || cfg.appName || footerSpan.textContent;
+  } catch {}
 
-    // Expose a setter for optional theme picker
-    window.setTheme = (t) => {
-      if (!cfg.themes?.includes(t)) return;
-      document.documentElement.setAttribute("data-theme", t);
-      localStorage.setItem("theme", t);
-    };
+  // Theme handling:
+  // If DEFAULT_THEME changed in the server config, override any old saved theme once.
+  const saved = localStorage.getItem("theme");
+  const lastDefault = localStorage.getItem("lastDefaultTheme");
+  const defaultTheme = (cfg.defaultTheme || "emerald");
+
+  let theme;
+  if (saved && cfg.themes?.includes(saved) && lastDefault === defaultTheme) {
+    // user-chosen theme is honored if server default hasn't changed
+    theme = saved;
+  } else {
+    // server default changed or nothing saved → adopt server default & persist it
+    theme = defaultTheme;
+    localStorage.setItem("theme", theme);
+    localStorage.setItem("lastDefaultTheme", defaultTheme);
   }
+
+  document.documentElement.setAttribute("data-theme", theme);
+
+  // Public setter for a future theme picker
+  window.setTheme = (t) => {
+    if (!cfg.themes?.includes(t)) return;
+    document.documentElement.setAttribute("data-theme", t);
+    localStorage.setItem("theme", t);
+    // keep lastDefaultTheme as the server’s value; it’s only for detecting server changes
+  };
+}
 
   loadConfig().then(applyConfig);
 })();
