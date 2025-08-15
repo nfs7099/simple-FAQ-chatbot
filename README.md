@@ -22,23 +22,3 @@ Features
 
 ✅ Safer uploads: PDF-only (extension + magic bytes), size limits, path-traversal safe.
 
-Architecture
-                        ┌──────────────────────────────────────────────────┐
-                        │                    Frontend                      │
-                        │  React UI (static) + Theming via CSS variables   │
-                        └───────▲───────────────────────────────▲──────────┘
-                                │                               │
-                     UI config  │           REST API            │ Chat & status
-         /api/ui-config + theme │      /api/query /api/status   │ updates
-                                │                               │
-┌───────────────────────────────┴───────────────┐  ┌────────────┴─────────────────┐
-│                 FastAPI backend               │  │           RAG Pipeline        │
-│  - upload, index, query, status endpoints     │  │  Embeddings + FAISS + rerank  │
-│  - PDF validation (ext + magic bytes + size)  │  │  Token-based chunker          │
-└───────────────────────────────┬───────────────┘  └────────────┬─────────────────┘
-                                │                               │
-                                │                               │
-                       ┌────────▼─────────┐             ┌───────▼────────────────┐
-                       │ Vector store     │             │ Language models         │
-                       │ FAISS on disk    │             │ Ollama / OpenAI / Anth.│
-                       └──────────────────┘             └─────────────────────────┘
